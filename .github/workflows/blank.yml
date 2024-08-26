@@ -1,0 +1,61 @@
+name: CI/CD Pipeline
+
+# 定义何时触发CI流程
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+# 定义CI流程中的jobs
+jobs:
+  build:
+    # 使用最新的Ubuntu虚拟环境
+    runs-on: ubuntu-latest
+
+    steps:
+    # 检出代码到runner
+    - uses: actions/checkout@v2
+
+    # 设置JDK环境
+    - name: Set up JDK 17
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+
+    # 缓存Maven依赖以加速构建过程
+    - name: Cache Maven packages
+      uses: actions/cache@v2
+      with:
+        path: ~/.m2/repository
+        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+        restore-keys: |
+          ${{ runner.os }}-maven-
+
+    # 编译和运行测试
+    - name: Build with Maven
+      run: mvn clean install
+
+    # 构建Docker镜像（如果需要）
+    - name: Build Docker Image
+      run: docker build -t my-springboot-app .
+
+  deploy:
+    # 定义部署任务，要求build任务成功后执行
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Deploy via SSH
+      uses: appleboy/ssh-action@v0.1.8
+      with:
+        host: ${{ secrets.SSH_HOST }}
+        username: ${{ secrets.SSH_USERNAME }}
+        key: ${{ secrets.SSH_KEY }}
+        script: |
+          docker pull my-springboot-app
+          docker stop springboot-container || true
+          docker rm springboot-container || true
+          docker run -d --name springboot-container -p 5000:5000 my-springboot-app
